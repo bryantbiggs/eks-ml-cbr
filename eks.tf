@@ -37,6 +37,17 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
+  node_security_group_additional_rules = {
+    egress_efs = {
+      description      = "EFS 2049/tcp ingress"
+      protocol         = "tcp"
+      from_port        = 2049
+      to_port          = 2049
+      type             = "ingress"
+      cidr_blocks      = module.vpc.private_subnets_cidr_blocks
+    }
+  }
+
   eks_managed_node_groups = {
     # This node group is for core addons such as CoreDNS
     default = {
