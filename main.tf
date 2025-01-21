@@ -1,11 +1,26 @@
+terraform {
+
+  backend "s3" {
+    bucket         = "<UPDATE>"
+    key            = "<UPDATE>/terraform.tfstate"
+    region         = "<UPDATE>"
+    encrypt        = true
+  }
+}
+
 provider "aws" {
   region = local.region
+
+  assume_role {
+    role_arn     = "<UPDATE>"
+    session_name = local.name
+  }
 }
 
 locals {
   # TODO - Update to suite
   name   = "example"
-  region = "us-west-2"
+  region = "eu-central-1"
 }
 
 ################################################################################
