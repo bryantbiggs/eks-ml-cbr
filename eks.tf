@@ -6,7 +6,7 @@ module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 20.33"
 
-  cluster_name    = "example"
+  cluster_name    = local.name
   cluster_version = "1.31"
 
   # To facilitate easier interaction for demonstration purposes
