@@ -61,7 +61,48 @@ module "eks" {
       max_size     = 3
       desired_size = 2
     }
+    g6 = {
+      ami_type = "AL2023_x86_64_NVIDIA"
+      instance_types = [
+        "g6e.12xlarge",
+      ]
+
+      # FYI - https://github.com/bryantbiggs/eks-desired-size-hack
+      min_size     = 2
+      max_size     = 5
+      desired_size = 2
+
+      cloudinit_pre_nodeadm = [
+        {
+          content_type = "application/node.eks.aws"
+          content      = <<-EOT
+            ---
+            apiVersion: node.eks.aws/v1alpha1
+            kind: NodeConfig
+            spec:
+              instance:
+                localStorage:
+                  strategy: RAID0
+          EOT
+        }
+      ]
+
+      labels = {
+        "nvidia.com/gpu.present" = "true"
+      }
+
+      taints = {
+        # Ensure only GPU workloads are scheduled on this node group
+        gpu = {
+          key    = "nvidia.com/gpu"
+          value  = "true"
+          effect = "NO_SCHEDULE"
+        }
+      }
+    }
     p5-cbr = {
+      # Flip to `true` to create
+      create   = false
       ami_type = "AL2023_x86_64_NVIDIA"
       instance_types = [
         "p5.48xlarge",
