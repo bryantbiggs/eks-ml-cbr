@@ -1,34 +1,10 @@
-/*
-## NVIDIA K8s Device Plugin
-
-The NVIDIA K8s device plugin, https://github.com/NVIDIA/k8s-device-plugin, will need to
-be installed in the cluster in order to mount and utilize the GPUs in your pods. Add the
-following affinity rule to your device plugin Helm chart values to ensure the device
-plugin runs on nodes that have GPUs present (as identified via the MNG
-labels provided below):
-
-```yaml
-affinity:
-  nodeAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      nodeSelectorTerms:
-        - matchExpressions:
-          - key: 'nvidia.com/gpu.present'
-            operator: In
-            values:
-              - 'true'
-```
-
-By default, the NVIDIA K8s device values already contain a toleration that matches the taint applied
-to the node group below.
-*/
 ################################################################################
 # EKS Cluster
 ################################################################################
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.31"
+  version = "~> 20.33"
 
   cluster_name    = "example"
   cluster_version = "1.31"
@@ -46,24 +22,20 @@ module "eks" {
   enable_security_groups_for_pods = false
 
   cluster_addons = {
-    coredns    = {}
-    kube-proxy = {}
-    vpc-cni = {
+    aws-efs-csi-driver = {
       pod_identity_role_arn = [{
-        role_arn        = module.vpc_cni_pod_identity.iam_role_arn
-        service_account = "aws-node"
+        role_arn        = module.aws_efs_csi_driver_pod_identity.iam_role_arn
+        service_account = "efs-csi-controller-sa"
       }]
     }
+    coredns                = {}
+    kube-proxy             = {}
+    vpc-cni                = {}
     eks-pod-identity-agent = {}
   }
 
-  vpc_id                   = data.aws_vpc.this.id
-  control_plane_subnet_ids = data.aws_subnets.control_plane.ids
-  subnet_ids               = data.aws_subnets.data_plane.ids
-
-  cluster_zonal_shift_config = {
-    enabled = true
-  }
+  vpc_id     = module.vpc.vpc_id
+  subnet_ids = module.vpc.private_subnets
 
   eks_managed_node_groups = {
     # This node group is for core addons such as CoreDNS
@@ -78,7 +50,7 @@ module "eks" {
       max_size     = 3
       desired_size = 2
     }
-    gpu = {
+    p5-cbr = {
       ami_type = "AL2023_x86_64_NVIDIA"
       instance_types = [
         "p5.48xlarge",
@@ -117,7 +89,8 @@ module "eks" {
       }
 
       # Capacity reservations are restricted to a single availability zone
-      subnet_ids = data.aws_subnets.data_plane_reservation.ids
+      # TODO - update for the zone where the reseravtion is allocated
+      subnet_ids = element(module.vpc.private_subnets, 0)
 
       # ML capacity block reservation
       capacity_type = "CAPACITY_BLOCK"
@@ -136,17 +109,76 @@ module "eks" {
 }
 
 ################################################################################
-# EKS Pod Identity IAM Roles
+# EFS CSI Driver Pod Identity IAM Role
 ################################################################################
 
-module "vpc_cni_pod_identity" {
+module "aws_efs_csi_driver_pod_identity" {
   source  = "terraform-aws-modules/eks-pod-identity/aws"
-  version = "~> 1.7"
+  version = "~> 1.9"
 
-  name = "vpc-cni"
+  name = "aws-efs-csi"
 
-  attach_aws_vpc_cni_policy = true
-  aws_vpc_cni_enable_ipv4   = true
+  associations = {
+    controller = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "kube-system"
+      service_account = "efs-csi-controller-sa"
+    }
+  }
+
+  attach_aws_efs_csi_policy = true
 
   tags = module.tags.tags
+}
+
+################################################################################
+# AWS Load Balancer Controller
+################################################################################
+
+module "aws_lb_controller_pod_identity" {
+  source  = "terraform-aws-modules/eks-pod-identity/aws"
+  version = "~> 1.9"
+
+  name = "aws-lbc"
+
+  associations = {
+    this = {
+      cluster_name    = module.eks.cluster_name
+      namespace       = "kube-system"
+      service_account = "aws-load-balancer-controller-sa"
+    }
+  }
+
+  attach_aws_lb_controller_policy = true
+
+  tags = module.tags.tags
+}
+
+resource "helm_release" "aws_lb_controller" {
+  name       = "aws-load-balancer-controller"
+  repository = "https://aws.github.io/eks-charts"
+  chart      = "aws-load-balancer-controller"
+  version    = "1.11.1"
+  namespace  = "kube-system"
+  wait       = false
+
+  values = [
+    <<-EOT
+      clusterName: ${module.eks.cluster_name}
+    EOT
+  ]
+}
+
+################################################################################
+# NVIDIA Device Plugin
+################################################################################
+
+resource "helm_release" "nvidia_device_plugin" {
+  name             = "nvidia-device-plugin"
+  repository       = "https://nvidia.github.io/k8s-device-plugin"
+  chart            = "nvidia-device-plugin"
+  version          = "0.17.0"
+  namespace        = "nvidia-device-plugin"
+  create_namespace = true
+  wait             = false
 }

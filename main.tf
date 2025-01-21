@@ -1,50 +1,32 @@
+provider "aws" {
+  region = local.region
+}
+
+locals {
+  # TODO - Update to suite
+  name   = "example"
+  region = "us-west-2"
+}
+
 ################################################################################
-# Tags - Replace with your own tags implementation
+# Tags
+# TODO - Replace with your own tags implementation
 ################################################################################
 
 module "tags" {
   source  = "clowdhaus/tags/aws"
   version = "~> 1.1"
 
-  application = "cookiecluster"
+  application = "eks-ml-cbr"
   environment = "nonprod"
-  repository  = "github.com/clowdhaus/cookiecluster"
+  repository  = "https://github.com/clowdhaus/eks-ml-cbr"
 }
 
 ################################################################################
-# VPC & Subnet data sources
+# Output
 ################################################################################
 
-data "aws_vpc" "this" {
-  filter {
-    name   = "tag:Name"
-    values = ["example"]
-  }
-}
-
-data "aws_subnets" "control_plane" {
-  filter {
-    name   = "tag:Name"
-    values = ["*-private-*"]
-  }
-}
-
-data "aws_subnets" "data_plane" {
-  filter {
-    name   = "tag:Name"
-    values = ["*-private-*"]
-  }
-}
-
-data "aws_subnets" "data_plane_reservation" {
-  filter {
-    name   = "tag:Name"
-    values = ["*-private-*"]
-  }
-
-  # Capacity reservations are restricted to a single availability zone
-  filter {
-    name   = "availability-zone"
-    values = ["us-west-2a"]
-  }
+output "configure_kubectl" {
+  description = "Configure kubectl: make sure you're logged in with the correct AWS profile and run the following command to update your kubeconfig"
+  value       = "aws eks --region ${local.region} update-kubeconfig --name ${module.eks.cluster_name}"
 }
