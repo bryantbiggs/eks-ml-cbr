@@ -38,7 +38,7 @@ module "eks" {
   subnet_ids = module.vpc.private_subnets
 
   node_security_group_additional_rules = {
-    egress_efs = {
+    ingress_efs = {
       description      = "EFS 2049/tcp ingress"
       protocol         = "tcp"
       from_port        = 2049
