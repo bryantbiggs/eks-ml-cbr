@@ -1,26 +1,51 @@
-terraform {
+# terraform {
 
-  backend "s3" {
-    bucket         = "<UPDATE>"
-    key            = "<UPDATE>/terraform.tfstate"
-    region         = "<UPDATE>"
-    encrypt        = true
-  }
-}
+#   backend "s3" {
+#     bucket         = "<UPDATE>"
+#     key            = "<UPDATE>/terraform.tfstate"
+#     region         = "<UPDATE>"
+#     encrypt        = true
+#   }
+# }
 
 provider "aws" {
   region = local.region
 
-  assume_role {
-    role_arn     = "<UPDATE>"
-    session_name = local.name
+  # assume_role {
+  #   role_arn     = "<UPDATE>"
+  #   session_name = local.name
+  # }
+}
+
+provider "helm" {
+  kubernetes {
+    host                   = module.eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      # This requires the awscli to be installed locally where Terraform is executed
+      args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+    }
+  }
+}
+
+provider "kubernetes" {
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    # This requires the awscli to be installed locally where Terraform is executed
+    args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
   }
 }
 
 locals {
-  # TODO - Update to suite
-  name   = "example"
-  region = "eu-central-1"
+  name   = "eks-ml-cbr"
+  region = "us-east-1"
 }
 
 ################################################################################

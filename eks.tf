@@ -28,25 +28,18 @@ module "eks" {
         service_account = "efs-csi-controller-sa"
       }]
     }
-    coredns                = {}
-    kube-proxy             = {}
-    vpc-cni                = {}
-    eks-pod-identity-agent = {}
+    coredns = {}
+    eks-pod-identity-agent = {
+      before_compute = true
+    }
+    kube-proxy = {}
+    vpc-cni = {
+      before_compute = true
+    }
   }
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
-
-  node_security_group_additional_rules = {
-    ingress_efs = {
-      description      = "EFS 2049/tcp ingress"
-      protocol         = "tcp"
-      from_port        = 2049
-      to_port          = 2049
-      type             = "ingress"
-      cidr_blocks      = module.vpc.private_subnets_cidr_blocks
-    }
-  }
 
   eks_managed_node_groups = {
     # This node group is for core addons such as CoreDNS
@@ -64,7 +57,7 @@ module "eks" {
     g6 = {
       ami_type = "AL2023_x86_64_NVIDIA"
       instance_types = [
-        "g6e.12xlarge",
+        "g6e.xlarge",
       ]
 
       # FYI - https://github.com/bryantbiggs/eks-desired-size-hack
@@ -142,7 +135,7 @@ module "eks" {
 
       # Capacity reservations are restricted to a single availability zone
       # TODO - update for the zone where the reseravtion is allocated
-      subnet_ids = element(module.vpc.private_subnets, 0)
+      subnet_ids = [element(module.vpc.private_subnets, 0)]
 
       # ML capacity block reservation
       capacity_type = "CAPACITY_BLOCK"
@@ -161,7 +154,7 @@ module "eks" {
 }
 
 ################################################################################
-# EFS CSI Driver Pod Identity IAM Role
+# EFS - CSI driver Pod Identity IAM role & storage class
 ################################################################################
 
 module "aws_efs_csi_driver_pod_identity" {
@@ -179,6 +172,51 @@ module "aws_efs_csi_driver_pod_identity" {
   }
 
   attach_aws_efs_csi_policy = true
+
+  tags = module.tags.tags
+}
+
+resource "kubernetes_storage_class_v1" "efs" {
+  metadata {
+    name = "efs"
+  }
+
+  storage_provisioner = "efs.csi.aws.com"
+  parameters = {
+    provisioningMode = "efs-ap" # Dynamic provisioning
+    fileSystemId     = module.efs.id
+    directoryPerms   = "700"
+  }
+
+  mount_options = [
+    "iam"
+  ]
+
+  depends_on = [
+    module.eks.aws_eks_addon
+  ]
+}
+
+module "efs" {
+  source  = "terraform-aws-modules/efs/aws"
+  version = "~> 1.1"
+
+  creation_token = local.name
+  name           = local.name
+
+  # Mount targets / security group
+  mount_targets = {
+    for k, v in zipmap(local.azs, module.vpc.private_subnets) : k => { subnet_id = v }
+  }
+  security_group_description = "${local.name} EFS security group"
+  security_group_vpc_id      = module.vpc.vpc_id
+  security_group_rules = {
+    vpc = {
+      # relying on the defaults provided for EFS/NFS (2049/TCP + ingress)
+      description = "NFS ingress from VPC private subnets"
+      cidr_blocks = module.vpc.private_subnets_cidr_blocks
+    }
+  }
 
   tags = module.tags.tags
 }
@@ -210,7 +248,7 @@ resource "helm_release" "aws_lb_controller" {
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
-  version    = "1.11.1"
+  version    = "1.11.0"
   namespace  = "kube-system"
   wait       = false
 
